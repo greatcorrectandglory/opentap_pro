@@ -71,6 +71,105 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-2026-02-19-opentap-plugin-manager" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/02/19/2026-02-19-opentap-plugin-manager/" class="article-date">
+  <time class="dt-published" datetime="2026-02-19T02:00:00.000Z" itemprop="datePublished">2026-02-19</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E6%B7%B1%E5%BA%A6/">技术深度</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/02/19/2026-02-19-opentap-plugin-manager/">OpenTAP插件管理机制深度解析</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>OpenTAP作为一款开源的测试自动化平台，其强大的插件系统是其核心特性之一。插件机制允许开发者动态扩展平台功能，实现测试步骤、仪器驱动、结果分析等各种组件的热插拔。本文将深入剖析OpenTAP的插件管理机制，揭示其背后的设计哲学和实现细节。</p>
+<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><h3 id="核心架构"><a href="#核心架构" class="headerlink" title="核心架构"></a>核心架构</h3><p>OpenTAP的插件管理基于<code>PluginManager</code>静态类实现，采用懒加载和缓存策略确保性能。整个架构包含三个关键组件：</p>
+<ol>
+<li><strong>PluginManager</strong>：对外提供统一的插件查询和管理接口</li>
+<li><strong>PluginSearcher</strong>：负责扫描程序集并发现插件类型</li>
+<li><strong>TapAssemblyResolver</strong>：处理程序集加载和依赖解析</li>
+</ol>
+<h3 id="插件发现机制"><a href="#插件发现机制" class="headerlink" title="插件发现机制"></a>插件发现机制</h3><p>插件发现采用属性标记和接口继承双重机制。任何实现了<code>ITapPlugin</code>接口的类都可以被识别为插件，同时通过<code>PluginAssemblyAttribute</code>标记包含插件的程序集。</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[<span class="meta">AttributeUsage(AttributeTargets.Assembly)</span>]</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title">PluginAssemblyAttribute</span> : <span class="title">Attribute</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="built_in">bool</span> SearchInternalTypes &#123; <span class="keyword">get</span>; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="built_in">string</span> PluginInitMethod &#123; <span class="keyword">get</span>; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><h3 id="1-插件搜索流程"><a href="#1-插件搜索流程" class="headerlink" title="1. 插件搜索流程"></a>1. 插件搜索流程</h3><p>插件搜索是一个多阶段的过程：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> ReadOnlyCollection&lt;Type&gt; <span class="title">GetPlugins</span>(<span class="params">Type pluginBaseType</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">return</span> PluginFetcher.GetPlugins(pluginBaseType);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">static</span> ReadOnlyCollection&lt;Type&gt; <span class="title">getPlugins</span>(<span class="params">Type pluginBaseType</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">    PluginSearcher searcher = GetSearcher();</span><br><span class="line">    <span class="keyword">var</span> unloadedPlugins = PluginManager.GetPlugins(searcher, pluginBaseType.FullName);</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">if</span> (unloadedPlugins.Count == <span class="number">0</span>)</span><br><span class="line">        <span class="keyword">return</span> emptyTypes;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 并行加载未加载的程序集</span></span><br><span class="line">    <span class="keyword">var</span> notLoadedAssembliesCnt = unloadedPlugins</span><br><span class="line">        .Select(x =&gt; x.Assembly)</span><br><span class="line">        .Distinct()</span><br><span class="line">        .Where(asm =&gt; asm.Status == LoadStatus.NotLoaded)</span><br><span class="line">        .ToArray();</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">if</span> (notLoadedAssembliesCnt.Length &gt; <span class="number">0</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        notLoadedAssembliesCnt.AsParallel().ForAll(asm =&gt; asm.Load());</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> unloadedPlugins</span><br><span class="line">        .Select(td =&gt; td.Load())</span><br><span class="line">        .Where(x =&gt; x != <span class="literal">null</span>)</span><br><span class="line">        .ToList()</span><br><span class="line">        .AsReadOnly();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-程序集解析机制"><a href="#2-程序集解析机制" class="headerlink" title="2. 程序集解析机制"></a>2. 程序集解析机制</h3><p><code>TapAssemblyResolver</code>实现了智能的程序集解析策略：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">Assembly <span class="title">resolveAssembly</span>(<span class="params"><span class="built_in">string</span> name, <span class="built_in">bool</span> reflectionOnly</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="comment">// 版本匹配策略：优先精确版本，其次最高版本</span></span><br><span class="line">    <span class="keyword">var</span> matchingVersion = candidates.FirstOrDefault(c =&gt; c.Name.Version == requestedAsmName.Version);</span><br><span class="line">    <span class="keyword">if</span> (matchingVersion.Path != <span class="literal">null</span>)</span><br><span class="line">    &#123;</span><br><span class="line">        Assembly asm = tryLoad(matchingVersion.Path);</span><br><span class="line">        <span class="keyword">if</span> (asm != <span class="literal">null</span>) <span class="keyword">return</span> asm;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 按版本降序尝试加载</span></span><br><span class="line">    <span class="keyword">var</span> ordered = candidates.OrderByDescending(c =&gt; c.Name.Version);</span><br><span class="line">    <span class="keyword">foreach</span> (<span class="keyword">var</span> c <span class="keyword">in</span> ordered)</span><br><span class="line">    &#123;</span><br><span class="line">        Assembly asm = tryLoad(c.Path);</span><br><span class="line">        <span class="keyword">if</span> (asm != <span class="literal">null</span>) <span class="keyword">return</span> asm;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-缓存优化策略"><a href="#3-缓存优化策略" class="headerlink" title="3. 缓存优化策略"></a>3. 缓存优化策略</h3><p>系统采用多层缓存机制提升性能：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title">StaticPluginTypeCache</span>&lt;<span class="title">T</span>&gt;</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">static</span> ReadOnlyCollection&lt;Type&gt; list;</span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> ReadOnlyCollection&lt;Type&gt; <span class="title">Get</span>()</span></span><br><span class="line">    &#123;</span><br><span class="line">        <span class="keyword">return</span> list ??= GetPlugins(<span class="keyword">typeof</span>(T));</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">static</span> <span class="title">StaticPluginTypeCache</span>()</span></span><br><span class="line">    &#123;</span><br><span class="line">        CacheState.Updated += (s, e) =&gt; list = <span class="literal">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><h3 id="1-线程安全"><a href="#1-线程安全" class="headerlink" title="1. 线程安全"></a>1. 线程安全</h3><p><code>PluginManager</code>使用多种同步机制确保线程安全：</p>
+<ul>
+<li><code>ManualResetEventSlim</code>控制搜索任务状态</li>
+<li>锁机制保护共享数据结构</li>
+<li>并发集合类处理并行访问</li>
+</ul>
+<h3 id="2-性能考量"><a href="#2-性能考量" class="headerlink" title="2. 性能考量"></a>2. 性能考量</h3><ul>
+<li><strong>懒加载</strong>：插件类型只在需要时加载</li>
+<li><strong>并行处理</strong>：大量插件加载时启用并行处理</li>
+<li><strong>智能缓存</strong>：静态泛型缓存避免重复查询</li>
+<li><strong>增量搜索</strong>：基于前次搜索结果进行增量更新</li>
+</ul>
+<h3 id="3-错误处理"><a href="#3-错误处理" class="headerlink" title="3. 错误处理"></a>3. 错误处理</h3><p>系统具有完善的错误处理机制：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">var</span> fileNames = assemblyResolver.GetAssembliesToSearch();</span><br><span class="line">    searcher = SearchAndAddToStore(fileNames);</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">catch</span> (Exception e)</span><br><span class="line">&#123;</span><br><span class="line">    log.Error(<span class="string">&quot;Caught exception while searching for plugins: &#x27;&#123;0&#125;&#x27;&quot;</span>, e.Message);</span><br><span class="line">    log.Debug(e);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>OpenTAP的插件管理机制体现了优秀的软件架构设计：</p>
+<ol>
+<li><strong>松耦合</strong>：插件与平台之间通过接口解耦</li>
+<li><strong>可扩展</strong>：支持动态发现和加载新插件</li>
+<li><strong>高性能</strong>：多层缓存和并行处理优化</li>
+<li><strong>健壮性</strong>：完善的错误处理和版本管理</li>
+</ol>
+<p>这种设计使得OpenTAP能够支持复杂的测试场景，同时保持良好的性能和稳定性。理解插件管理机制对于开发高质量的OpenTAP插件至关重要。</p>
+<h2 id="复现代码"><a href="#复现代码" class="headerlink" title="复现代码"></a>复现代码</h2><p>创建一个简单的插件并验证其被正确识别：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">using</span> OpenTap;</span><br><span class="line"></span><br><span class="line"><span class="keyword">namespace</span> <span class="title">MyOpenTapPlugins</span></span><br><span class="line">&#123;</span><br><span class="line">    [<span class="meta">DisplayName(<span class="string">&quot;My Custom Test Step&quot;</span>)</span>]</span><br><span class="line">    [<span class="meta">Description(<span class="string">&quot;A simple test step to demonstrate plugin discovery&quot;</span>)</span>]</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">class</span> <span class="title">CustomTestStep</span> : <span class="title">TestStep</span></span><br><span class="line">    &#123;</span><br><span class="line">        [<span class="meta">DisplayName(<span class="string">&quot;Message&quot;</span>)</span>]</span><br><span class="line">        <span class="keyword">public</span> <span class="built_in">string</span> Message &#123; <span class="keyword">get</span>; <span class="keyword">set</span>; &#125; = <span class="string">&quot;Hello OpenTAP!&quot;</span>;</span><br><span class="line">        </span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">override</span> <span class="keyword">void</span> <span class="title">Run</span>()</span></span><br><span class="line">        &#123;</span><br><span class="line">            Log.Info(Message);</span><br><span class="line">            UpgradeVerdict(Verdict.Pass);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>编译后复制到OpenTAP安装目录，使用以下命令验证插件发现：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">tap plugins list --filter CustomTestStep</span><br></pre></td></tr></table></figure>
+
+<h2 id="关键源码路径"><a href="#关键源码路径" class="headerlink" title="关键源码路径"></a>关键源码路径</h2><ul>
+<li><code>/Engine/PluginManager.cs</code> - 插件管理器主类</li>
+<li><code>/Engine/PluginSearcher.cs</code> - 插件搜索实现</li>
+<li><code>/Engine/TapAssemblyResolver.cs</code> - 程序集解析器</li>
+<li><code>/Engine/TypeData.cs</code> - 类型元数据封装</li>
+<li><code>/Engine/AssemblyData.cs</code> - 程序集元数据封装</li>
+</ul>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2026/02/19/2026-02-19-opentap-plugin-manager/" data-id="cuidaHF4faSbHCOEADf2kr51N" data-title="OpenTAP插件管理机制深度解析" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/PluginManager/" rel="tag">PluginManager</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F/" rel="tag">插件系统</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" rel="tag">架构设计</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-2026-02-18-opentap-cli-architecture" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/02/18/2026-02-18-opentap-cli-architecture/" class="article-date">
@@ -640,7 +739,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">Tag Cloud</h3>
     <div class="widget tagcloud">
-      <a href="/tags/Browser-Relay/" style="font-size: 10px;">Browser Relay</a> <a href="/tags/CLI/" style="font-size: 10px;">CLI</a> <a href="/tags/Cron/" style="font-size: 10px;">Cron</a> <a href="/tags/OpenTAP/" style="font-size: 20px;">OpenTAP</a> <a href="/tags/PluginManager/" style="font-size: 10px;">PluginManager</a> <a href="/tags/TestPlanExecution/" style="font-size: 10px;">TestPlanExecution</a> <a href="/tags/TestStep/" style="font-size: 10px;">TestStep</a> <a href="/tags/%E5%8F%8D%E5%B0%84/" style="font-size: 10px;">反射</a> <a href="/tags/%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8E%A5%E5%8F%A3/" style="font-size: 10px;">命令行接口</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%A8%A1%E5%9E%8B/" style="font-size: 10px;">执行模型</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">插件架构</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F/" style="font-size: 10px;">插件系统</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" style="font-size: 10px;">架构设计</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%AD%A5%E9%AA%A4/" style="font-size: 10px;">测试步骤</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试计划执行</a> <a href="/tags/%E7%8A%B6%E6%80%81%E7%AE%A1%E7%90%86/" style="font-size: 10px;">状态管理</a> <a href="/tags/%E7%A8%8B%E5%BA%8F%E9%9B%86%E5%8A%A0%E8%BD%BD/" style="font-size: 10px;">程序集加载</a> <a href="/tags/%E8%87%AA%E5%8A%A8%E5%8C%96/" style="font-size: 10px;">自动化</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 10px;">资源生命周期</a> <a href="/tags/%E8%BF%90%E7%BB%B4/" style="font-size: 10px;">运维</a>
+      <a href="/tags/Browser-Relay/" style="font-size: 10px;">Browser Relay</a> <a href="/tags/CLI/" style="font-size: 10px;">CLI</a> <a href="/tags/Cron/" style="font-size: 10px;">Cron</a> <a href="/tags/OpenTAP/" style="font-size: 20px;">OpenTAP</a> <a href="/tags/PluginManager/" style="font-size: 15px;">PluginManager</a> <a href="/tags/TestPlanExecution/" style="font-size: 10px;">TestPlanExecution</a> <a href="/tags/TestStep/" style="font-size: 10px;">TestStep</a> <a href="/tags/%E5%8F%8D%E5%B0%84/" style="font-size: 10px;">反射</a> <a href="/tags/%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8E%A5%E5%8F%A3/" style="font-size: 10px;">命令行接口</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%A8%A1%E5%9E%8B/" style="font-size: 10px;">执行模型</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">插件架构</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F/" style="font-size: 15px;">插件系统</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" style="font-size: 15px;">架构设计</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%AD%A5%E9%AA%A4/" style="font-size: 10px;">测试步骤</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试计划执行</a> <a href="/tags/%E7%8A%B6%E6%80%81%E7%AE%A1%E7%90%86/" style="font-size: 10px;">状态管理</a> <a href="/tags/%E7%A8%8B%E5%BA%8F%E9%9B%86%E5%8A%A0%E8%BD%BD/" style="font-size: 10px;">程序集加载</a> <a href="/tags/%E8%87%AA%E5%8A%A8%E5%8C%96/" style="font-size: 10px;">自动化</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 10px;">资源生命周期</a> <a href="/tags/%E8%BF%90%E7%BB%B4/" style="font-size: 10px;">运维</a>
     </div>
   </div>
 
@@ -662,6 +761,10 @@
       <ul>
         
           <li>
+            <a href="/2026/02/19/2026-02-19-opentap-plugin-manager/">OpenTAP插件管理机制深度解析</a>
+          </li>
+        
+          <li>
             <a href="/2026/02/18/2026-02-18-opentap-cli-architecture/">OpenTAP CLI架构深度解析：从入口到命令执行</a>
           </li>
         
@@ -675,10 +778,6 @@
         
           <li>
             <a href="/2026/02/15/2026-02-15-opentap-pluginmanager-deep-dive/">OpenTAP PluginManager：插件发现与加载机制深度解析</a>
-          </li>
-        
-          <li>
-            <a href="/2026/02/14/2026-02-14-opentap-browser-relay-snapshot/">用 Browser Relay 把网页操作变成可复现流程</a>
           </li>
         
       </ul>

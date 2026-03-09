@@ -4,14 +4,21 @@
   <meta charset="utf-8">
   
   
-  <title>Tag: OpenTAP | Hexo</title>
+  <title>OpenTAP 插件扫描中的缓存失效机制 | Hexo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="Hexo">
-<meta property="og:url" content="http://example.com/tags/OpenTAP/index.html">
+  <meta name="description" content="背景在 OpenTAP 里，插件发现既要“快”，又要“准”。快，意味着 GetPlugins&lt;T&gt;() 不能每次都全盘扫描；准，意味着目录变化、包升级后必须及时看到新插件。源码里这两个目标并不是靠一个全局锁硬扛，而是通过“异步搜索 + 多层缓存 + 主动失效”配合完成，这也是 PluginManager 在大插件集合下仍能保持可用响应的关键。 框架分析核心链路分三层：  搜索状态层：P">
+<meta property="og:type" content="article">
+<meta property="og:title" content="OpenTAP 插件扫描中的缓存失效机制">
+<meta property="og:url" content="http://example.com/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/index.html">
 <meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="背景在 OpenTAP 里，插件发现既要“快”，又要“准”。快，意味着 GetPlugins&lt;T&gt;() 不能每次都全盘扫描；准，意味着目录变化、包升级后必须及时看到新插件。源码里这两个目标并不是靠一个全局锁硬扛，而是通过“异步搜索 + 多层缓存 + 主动失效”配合完成，这也是 PluginManager 在大插件集合下仍能保持可用响应的关键。 框架分析核心链路分三层：  搜索状态层：P">
 <meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-03-09T02:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-09T02:00:53.336Z">
 <meta property="article:author" content="John Doe">
+<meta property="article:tag" content="OpenTAP">
+<meta property="article:tag" content="PluginManager">
+<meta property="article:tag" content="架构">
 <meta name="twitter:card" content="summary">
   
     <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
@@ -69,216 +76,89 @@
 </header>
 
       <div class="outer">
-        <section id="main">
-  
-  
-    
-    
-      
-      
-      <section class="archives-wrap">
-        <div class="archive-year-wrap">
-          <a href="/archives/2026" class="archive-year">2026</a>
-        </div>
-        <div class="archives">
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-09T02:00:00.000Z" itemprop="datePublished">Mar 9</time>
+        <section id="main"><article id="post-2026-03-09-opentap-pluginmanager-cache-invalidation" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/" class="article-date">
+  <time class="dt-published" datetime="2026-03-09T02:00:00.000Z" itemprop="datePublished">2026-03-09</time>
 </a>
-      
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/OpenTAP%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">OpenTAP源码分析</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
   
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/">OpenTAP 插件扫描中的缓存失效机制</a>
+    <h1 class="p-name article-title" itemprop="headline name">
+      OpenTAP 插件扫描中的缓存失效机制
     </h1>
   
 
-    </header>
-  </div>
-</article>
-  
+      </header>
     
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/08/2026-03-08-opentap-workqueue-async-serial-execution/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-08T02:00:00.000Z" itemprop="datePublished">Mar 8</time>
-</a>
+    <div class="e-content article-entry" itemprop="articleBody">
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/08/2026-03-08-opentap-workqueue-async-serial-execution/">OpenTAP WorkQueue：异步提交与串行消费</a>
-    </h1>
-  
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>在 OpenTAP 里，插件发现既要“快”，又要“准”。快，意味着 <code>GetPlugins&lt;T&gt;()</code> 不能每次都全盘扫描；准，意味着目录变化、包升级后必须及时看到新插件。源码里这两个目标并不是靠一个全局锁硬扛，而是通过“异步搜索 + 多层缓存 + 主动失效”配合完成，这也是 PluginManager 在大插件集合下仍能保持可用响应的关键。</p>
+<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p>核心链路分三层：</p>
+<ol>
+<li><strong>搜索状态层</strong>：<code>PluginManager.SearchAsync()</code> 触发搜索，<code>searchTask</code>（<code>ManualResetEventSlim</code>）负责把“搜索进行中&#x2F;已完成”暴露给读路径。</li>
+<li><strong>查询缓存层</strong>：<code>PluginFetcher</code> 内部用 <code>Memorizer&lt;Type, ReadOnlyCollection&lt;Type&gt;&gt;</code> 缓存 <code>GetPlugins(Type)</code> 结果，另有 <code>StaticPluginTypeCache&lt;T&gt;</code> 做泛型静态缓存。</li>
+<li><strong>类型索引层</strong>：<code>PluginSearcher</code> 持有 <code>AllTypes/PluginTypes</code>，真正存放扫描后的类型图。</li>
+</ol>
+<p>当调用 <code>Search()</code> 时，会先 <code>searchTask.Reset()</code>，然后 <code>CacheState.OnUpdated()</code> 广播“缓存应失效”；搜索结束后 <code>searchTask.Set()</code> 放行查询。查询侧在 <code>PluginFetcher.GetPlugins</code> 里检测到“searcher 已替换”或“搜索未完成”，就会 <code>InvalidateAll()</code>，避免读到旧快照。</p>
+<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>源码里最值得复用的点是“先失效、后重建、最后放行”的顺序控制：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line"><span class="comment"># 快速定位关键实现</span></span><br><span class="line">grep -n <span class="string">&quot;SearchAsync\|searchTask\|InvalidateAll\|CacheState.OnUpdated&quot;</span> Engine/PluginManager.cs</span><br></pre></td></tr></table></figure>
 
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/07/2026-03-07-opentap-teststeprun-analysis/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-07T02:00:00.000Z" itemprop="datePublished">Mar 7</time>
-</a>
+<p>对应实现可概括为：</p>
+<ul>
+<li><code>SearchAsync()</code>：<code>searchTask.Reset()</code> → <code>CacheState.OnUpdated()</code> → 后台执行 <code>Search()</code>。</li>
+<li><code>Search()</code>：刷新 resolver（<code>assemblyResolver.Invalidate</code>）后重扫程序集，再替换 <code>searcher</code>。</li>
+<li><code>GetPlugins(Type)</code>：若发现搜索器变化或搜索进行中，先清查询缓存，再按需加载类型。</li>
+</ul>
+<p>这套流程把“扫描耗时”隔离到后台，同时用事件和状态位保证一致性，避免查询线程拿到半更新数据。</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><ul>
+<li><strong>不要绕过失效通知</strong>：如果二次开发里直接替换 <code>searcher</code> 却不触发 <code>CacheState.OnUpdated()</code>，<code>StaticPluginTypeCache&lt;T&gt;</code> 可能长期命中旧值。</li>
+<li><strong>并发读取要看门闩</strong>：任何依赖搜索结果的入口都应经过 <code>GetSearcher()</code> 或等价等待逻辑，不能假设搜索已完成。</li>
+<li><strong>目录动态变更要配套 Invalidate</strong>：<code>TapAssemblyResolver</code> 依赖 <code>Invalidate()</code> 同步搜索目录和解析缓存，否则会出现“新 DLL 在磁盘上、但解析器仍看不到”的错觉。</li>
+</ul>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>PluginManager 的重点不在“找到插件”本身，而在“在并发环境下持续得到正确插件视图”。OpenTAP 通过 <code>searchTask + CacheState + Memorizer</code> 形成了一个轻量但完整的失效协议：搜索线程负责重建快照，查询线程负责感知版本变化并清缓存。对需要做热加载或包升级的平台来说，这个设计比单纯加锁更稳，也更容易扩展。</p>
+<p>关键源码路径：</p>
+<ul>
+<li><code>Engine/PluginManager.cs</code></li>
+<li><code>Engine/PluginSearcher.cs</code></li>
+<li><code>Engine/AssemblyFinder.cs</code></li>
+</ul>
+
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/07/2026-03-07-opentap-teststeprun-analysis/">OpenTAP TestStepRun 实现机制深度解析</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/06/2026-03-06-opentap-sessionlog-rotation-and-latest-link/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-06T02:00:00.000Z" itemprop="datePublished">Mar 6</time>
-</a>
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/" data-id="cuidg3SfebEUeHpVkWoMceKMX" data-title="OpenTAP 插件扫描中的缓存失效机制" class="article-share-link"><span class="fa fa-share">Share</span></a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/06/2026-03-06-opentap-sessionlog-rotation-and-latest-link/">OpenTAP 会话日志轮转与 Latest 链接机制</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/05/2026-03-05-opentap-tapserializer-plugin-pipeline/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-05T02:45:00.000Z" itemprop="datePublished">Mar 5</time>
-</a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/05/2026-03-05-opentap-tapserializer-plugin-pipeline/">OpenTAP 序列化主线：TapSerializer 如何调度插件链</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/04/2026-03-04-opentap-resource-open-behavior/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-04T02:00:00.000Z" itemprop="datePublished">Mar 4</time>
-</a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/04/2026-03-04-opentap-resource-open-behavior/">OpenTAP 资源依赖调度：ResourceOpenBehavior 如何避免循环引用卡死</a>
-    </h1>
-  
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/PluginManager/" rel="tag">PluginManager</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li></ul>
 
-    </header>
+    </footer>
   </div>
+  
+    
+<nav id="article-nav">
+  
+  
+    <a href="/2026/03/08/2026-03-08-opentap-workqueue-async-serial-execution/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">OpenTAP WorkQueue：异步提交与串行消费</div>
+    </a>
+  
+</nav>
+
+  
 </article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/03/2026-03-03-opentap-version-specifier-compatibility/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-03T02:00:00.000Z" itemprop="datePublished">Mar 3</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/03/2026-03-03-opentap-version-specifier-compatibility/">OpenTAP 版本约束的核心：VersionSpecifier 兼容匹配机制</a>
-    </h1>
-  
 
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-02T02:00:00.000Z" itemprop="datePublished">Mar 2</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/">OpenTAP 结果监听器的异步分发链路</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/01/2026-03-01-opentap-break-condition-chain/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-01T02:00:00.000Z" itemprop="datePublished">Mar 1</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/01/2026-03-01-opentap-break-condition-chain/">OpenTAP 中断链路剖析：Break Conditions 如何从步骤传到计划</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/02/28/2026-02-28-opentap-verdict-propagation/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-02-28T02:00:00.000Z" itemprop="datePublished">Feb 28</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/02/28/2026-02-28-opentap-verdict-propagation/">OpenTAP Verdict 传递机制：从 Step 到 TestPlan 的状态收敛</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-  
-    </div></section>
-  
-
-
-  <nav id="page-nav">
-    
-    <span class="page-number current">1</span><a class="page-number" href="/tags/OpenTAP/page/2/">2</a><a class="page-number" href="/tags/OpenTAP/page/3/">3</a><a class="extend next" rel="next" href="/tags/OpenTAP/page/2/">Next &raquo;</a>
-  </nav>
 
 </section>
         

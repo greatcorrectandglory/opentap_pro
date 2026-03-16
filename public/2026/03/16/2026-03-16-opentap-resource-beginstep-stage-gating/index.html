@@ -4,21 +4,23 @@
   <meta charset="utf-8">
   
   
-  <title>OpenTAP 版本约束的核心：VersionSpecifier 兼容匹配机制 | Hexo</title>
+  <title>机制图解｜资源不是一开始全开：BeginStep 的阶段门控策略 | Hexo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta name="description" content="背景在 OpenTAP 的包安装与依赖解析中，版本字符串并不只是展示信息，而是直接影响“能否安装”“选哪个版本”。比如 ^1.1、Any、1.2.3-beta 这些写法，最终都会落到同一个核心对象：VersionSpecifier。这个对象既要支持语义化版本（SemVer），又要兼顾 OpenTAP 在预发布版本上的工程化策略（如是否允许 prerelease）。理解它的匹配逻辑，能帮助我们定位很">
+  <meta name="description" content="背景很多人第一次排查 OpenTAP 的资源问题时，会默认“计划一启动就把所有 Instrument 全部 Open”。但真实行为更细：资源何时打开，取决于当前执行阶段（Open &#x2F; Execute &#x2F; PrePlanRun &#x2F; Run &#x2F; PostPlanRun）以及资源是否已进入打开任务队列。这个差异直接影响启动耗时、失败暴露时机和日志观感。 框架分析核">
 <meta property="og:type" content="article">
-<meta property="og:title" content="OpenTAP 版本约束的核心：VersionSpecifier 兼容匹配机制">
-<meta property="og:url" content="http://example.com/2026/03/03/2026-03-03-opentap-version-specifier-compatibility/index.html">
+<meta property="og:title" content="机制图解｜资源不是一开始全开：BeginStep 的阶段门控策略">
+<meta property="og:url" content="http://example.com/2026/03/16/2026-03-16-opentap-resource-beginstep-stage-gating/index.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="背景在 OpenTAP 的包安装与依赖解析中，版本字符串并不只是展示信息，而是直接影响“能否安装”“选哪个版本”。比如 ^1.1、Any、1.2.3-beta 这些写法，最终都会落到同一个核心对象：VersionSpecifier。这个对象既要支持语义化版本（SemVer），又要兼顾 OpenTAP 在预发布版本上的工程化策略（如是否允许 prerelease）。理解它的匹配逻辑，能帮助我们定位很">
+<meta property="og:description" content="背景很多人第一次排查 OpenTAP 的资源问题时，会默认“计划一启动就把所有 Instrument 全部 Open”。但真实行为更细：资源何时打开，取决于当前执行阶段（Open &#x2F; Execute &#x2F; PrePlanRun &#x2F; Run &#x2F; PostPlanRun）以及资源是否已进入打开任务队列。这个差异直接影响启动耗时、失败暴露时机和日志观感。 框架分析核">
 <meta property="og:locale" content="en_US">
-<meta property="article:published_time" content="2026-03-03T02:00:00.000Z">
-<meta property="article:modified_time" content="2026-03-03T02:00:39.883Z">
+<meta property="article:published_time" content="2026-03-16T02:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T02:00:56.361Z">
 <meta property="article:author" content="John Doe">
 <meta property="article:tag" content="OpenTAP">
-<meta property="article:tag" content="Package">
-<meta property="article:tag" content="SemVer">
+<meta property="article:tag" content="Resource">
+<meta property="article:tag" content="ResourceTaskManager">
+<meta property="article:tag" content="TestPlanExecution">
+<meta property="article:tag" content="生命周期">
 <meta name="twitter:card" content="summary">
   
     <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
@@ -76,14 +78,14 @@
 </header>
 
       <div class="outer">
-        <section id="main"><article id="post-2026-03-03-opentap-version-specifier-compatibility" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+        <section id="main"><article id="post-2026-03-16-opentap-resource-beginstep-stage-gating" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
-    <a href="/2026/03/03/2026-03-03-opentap-version-specifier-compatibility/" class="article-date">
-  <time class="dt-published" datetime="2026-03-03T02:00:00.000Z" itemprop="datePublished">2026-03-03</time>
+    <a href="/2026/03/16/2026-03-16-opentap-resource-beginstep-stage-gating/" class="article-date">
+  <time class="dt-published" datetime="2026-03-16T02:00:00.000Z" itemprop="datePublished">2026-03-16</time>
 </a>
     
   <div class="article-category">
-    <a class="article-category-link" href="/categories/OpenTAP/">OpenTAP</a>
+    <a class="article-category-link" href="/categories/OpenTAP%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">OpenTAP源码分析</a>
   </div>
 
   </div>
@@ -94,7 +96,7 @@
         
   
     <h1 class="p-name article-title" itemprop="headline name">
-      OpenTAP 版本约束的核心：VersionSpecifier 兼容匹配机制
+      机制图解｜资源不是一开始全开：BeginStep 的阶段门控策略
     </h1>
   
 
@@ -102,57 +104,40 @@
     
     <div class="e-content article-entry" itemprop="articleBody">
       
-        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>在 OpenTAP 的包安装与依赖解析中，版本字符串并不只是展示信息，而是直接影响“能否安装”“选哪个版本”。比如 <code>^1.1</code>、<code>Any</code>、<code>1.2.3-beta</code> 这些写法，最终都会落到同一个核心对象：<code>VersionSpecifier</code>。这个对象既要支持语义化版本（SemVer），又要兼顾 OpenTAP 在预发布版本上的工程化策略（如是否允许 prerelease）。理解它的匹配逻辑，能帮助我们定位很多“依赖明明存在却不匹配”的问题。</p>
-<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p><code>VersionSpecifier</code> 位于 <code>Package/PackageSpecifier.cs</code>，核心职责有三层：</p>
-<ol>
-<li><strong>解析</strong>：<code>TryParse/Parse</code> 把字符串转换成结构化约束（major&#x2F;minor&#x2F;patch&#x2F;prerelease&#x2F;buildMetadata + match behavior）。</li>
-<li><strong>表达</strong>：<code>ToString()</code> 保证约束可逆序列化，便于写回 package 元数据。</li>
-<li><strong>判定</strong>：<code>IsCompatible(SemanticVersion)</code> 根据 <code>Exact</code> 或 <code>Compatible</code> 规则做匹配。</li>
-</ol>
-<p>其中最关键的是两个单例：</p>
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>很多人第一次排查 OpenTAP 的资源问题时，会默认“计划一启动就把所有 Instrument 全部 Open”。但真实行为更细：资源何时打开，取决于当前执行阶段（Open &#x2F; Execute &#x2F; PrePlanRun &#x2F; Run &#x2F; PostPlanRun）以及资源是否已进入打开任务队列。这个差异直接影响启动耗时、失败暴露时机和日志观感。</p>
+<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p>核心在 <code>Engine/ResourceTaskManager.cs</code> 的 <code>BeginStep(...)</code>。它不是单一入口做同一件事，而是按 <code>TestPlanExecutionStage</code> 分支：</p>
 <ul>
-<li><code>VersionSpecifier.Any</code>：匹配任何版本（包括 prerelease）。</li>
-<li><code>VersionSpecifier.AnyRelease</code>：匹配任意<strong>正式版</strong>（<code>actualVersion.PreRelease == null</code>）。</li>
+<li><code>Execute</code>：若存在空资源引用，先触发一次 <code>BeginOpenResources</code>，再启动 <code>StartResourcePromptAsync</code>；提示之后如果仍有未建任务资源，再补一次打开。</li>
+<li><code>Open</code>：对整计划静态资源与启用步骤资源做集中打开。</li>
+<li><code>PrePlanRun/Run</code>：不会盲目再开，而是检查已有 <code>openTasks</code> 是否全部 <code>RanToCompletion</code>；若未完成，才阻塞等待 <code>WaitUntilAllResourcesOpened</code>。</li>
+<li><code>PostPlanRun</code>：不新增打开动作。</li>
 </ul>
-<p>这两个分支在 <code>IsCompatible</code> 中有专门的快速路径，避免进入后续细粒度比较逻辑。</p>
-<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>先看入口：<code>TryParse</code> 用正则识别 <code>^</code>、主次补丁号、<code>-prerelease</code>、<code>+metadata</code>。当带 <code>^</code> 时，<code>MatchBehavior</code> 会被设置为 <code>Compatible</code>，否则是 <code>Exact</code>。</p>
-<p>进入匹配阶段后：</p>
-<ul>
-<li><strong>Exact 模式</strong>：主次补丁必须严格一致；若未启用 <code>AnyPrerelease</code>，还会比较 prerelease 前缀与 metadata。</li>
-<li><strong>Compatible 模式</strong>：主版本必须相同；次版本与补丁允许“向上兼容”；并且对 prerelease 做了额外处理，使 <code>^1</code> 能接受 <code>1.0.0-beta.1</code> 这类版本。</li>
-</ul>
-<p>可复现实验（直接跑单测）：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line">dotnet <span class="built_in">test</span> Engine.UnitTests/Engine.UnitTests.csproj --filter <span class="string">&quot;FullyQualifiedName~SpecifierCompatibilityTest&quot;</span></span><br></pre></td></tr></table></figure>
+<p>这说明 OpenTAP 的策略不是“全量预热”，而是“阶段感知 + 必要时等待”。</p>
+<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>可复现命令（直接定位门控逻辑）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line"><span class="comment"># 1) 看执行阶段枚举与 BeginStep 分支</span></span><br><span class="line">grep -n <span class="string">&quot;enum TestPlanExecutionStage\|void BeginStep&quot;</span> Engine/ResourceTaskManager.cs</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 看 PrePlanRun/Run 阶段的等待条件</span></span><br><span class="line">grep -n <span class="string">&quot;RanToCompletion\|WaitUntilAllResourcesOpened\|StartResourcePromptAsync&quot;</span> Engine/ResourceTaskManager.cs</span><br></pre></td></tr></table></figure>
 
-<p>这个测试集覆盖了典型场景，例如：</p>
-<ul>
-<li><code>^1</code> 匹配 <code>1.1.0</code>（true）</li>
-<li><code>^1.1</code> 不匹配 <code>1.1.0-beta.1</code>（false）</li>
-<li><code>^1.1</code> 匹配 <code>1.2.0-beta.1</code>（true）</li>
-</ul>
-<p>对应代码与断言可以在 <code>Engine.UnitTests/SemanticVersionTests.cs</code> 里直接看到。</p>
+<p>本地阅读时重点盯三件事：<code>openTasks</code> 的填充时机、<code>resources.Any(...)</code> 的两次判定、以及 <code>Execute</code> 分支里“先处理空引用再弹资源提示”的顺序。把这三点串起来，就能解释为何有些计划在启动时快、但在进入 PrePlanRun 前会短暂停顿。</p>
 <h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><ol>
-<li><strong>空字符串不是 Any</strong>：<code>&quot;&quot;</code> 会被解析为 <code>AnyRelease</code>，这在“默认不拉 prerelease”场景很常见。</li>
-<li><strong><code>^</code> 语义依赖 OpenTAP 实现细节</strong>：它不是简单照搬 npm 规则，而是结合 <code>ComparePreRelease</code> 与 prerelease 特判实现。</li>
-<li><strong>metadata 在兼容匹配中基本不参与决策</strong>：<code>Compatible</code> 主要看主次补丁与 prerelease 顺序。</li>
-<li><strong>调试优先看 Parse 结果</strong>：很多问题不是匹配错，而是输入字符串先被解析成了意料之外的约束。</li>
+<li><code>PrePlanRun/Run</code> 阶段的等待是“条件等待”，不是固定阻塞；日志里偶发等待通常意味着前序打开任务仍在跑或曾失败。</li>
+<li>资源提示 (<code>StartResourcePromptAsync</code>) 与打开流程交错存在，插件里不要假设提示完成就代表资源一定已全部可用。</li>
+<li>若自定义资源存在依赖链，建议结合 <code>ResourceOpenAttribute</code> 明确依赖打开语义，避免在阶段切换点出现“看似随机”的等待抖动。</li>
 </ol>
-<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p><code>VersionSpecifier</code> 是 OpenTAP 包系统里非常“底层但高频”的组件：解析、序列化、比较三件事都在这里闭环完成。它把“人类可读的版本表达式”稳定转换成“机器可执行的匹配规则”，并通过单测把兼容边界固定下来。实际工程中，只要先确认约束被如何解析，再看 <code>Exact/Compatible</code> 分支，绝大多数依赖版本问题都能快速定位。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p><code>BeginStep</code> 的价值在于把资源管理从“单次动作”改成“阶段门控流程”：该并发时并发、该提示时提示、该等待时再等待。理解这套门控后，排查“为什么不是一开始就全开”或“为何在 PrePlanRun 前卡一下”会快很多。</p>
 <p>关键源码路径：</p>
 <ul>
-<li><code>Package/PackageSpecifier.cs</code></li>
-<li><code>Engine.UnitTests/SemanticVersionTests.cs</code></li>
-<li><code>Package/Image/MockRepository.cs</code></li>
+<li><code>Engine/ResourceTaskManager.cs</code>（<code>TestPlanExecutionStage</code>、<code>BeginStep</code>、<code>BeginOpenResources</code>、<code>WaitUntilAllResourcesOpened</code>）</li>
+<li><code>Engine/TestPlan.cs</code>（测试计划执行阶段与资源管理协作入口）</li>
+<li><code>Engine/ILockable.cs</code>（资源打开前后锁管理扩展点）</li>
 </ul>
 
       
     </div>
     <footer class="article-footer">
-      <a data-url="http://example.com/2026/03/03/2026-03-03-opentap-version-specifier-compatibility/" data-id="cuidiP-DiFQ9g_uk8WrEIM9a3" data-title="OpenTAP 版本约束的核心：VersionSpecifier 兼容匹配机制" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      <a data-url="http://example.com/2026/03/16/2026-03-16-opentap-resource-beginstep-stage-gating/" data-id="cuidG4l1NopGIOJkf-5k6Mdco" data-title="机制图解｜资源不是一开始全开：BeginStep 的阶段门控策略" class="article-share-link"><span class="fa fa-share">Share</span></a>
       
       
       
-  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Package/" rel="tag">Package</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/SemVer/" rel="tag">SemVer</a></li></ul>
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Resource/" rel="tag">Resource</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ResourceTaskManager/" rel="tag">ResourceTaskManager</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/TestPlanExecution/" rel="tag">TestPlanExecution</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" rel="tag">生命周期</a></li></ul>
 
     </footer>
   </div>
@@ -160,19 +145,10 @@
     
 <nav id="article-nav">
   
-    <a href="/2026/03/04/2026-03-04-opentap-resource-open-behavior/" id="article-nav-newer" class="article-nav-link-wrap">
-      <strong class="article-nav-caption">Newer</strong>
-      <div class="article-nav-title">
-        
-          OpenTAP 资源依赖调度：ResourceOpenBehavior 如何避免循环引用卡死
-        
-      </div>
-    </a>
   
-  
-    <a href="/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/" id="article-nav-older" class="article-nav-link-wrap">
+    <a href="/2026/03/15/2026-03-15-opentap-preplanrun-postplanrun-ordering/" id="article-nav-older" class="article-nav-link-wrap">
       <strong class="article-nav-caption">Older</strong>
-      <div class="article-nav-title">OpenTAP 结果监听器的异步分发链路</div>
+      <div class="article-nav-title">源码拆解｜PrePlanRun 失败后为何仍会执行逆序 PostPlanRun</div>
     </a>
   
 </nav>

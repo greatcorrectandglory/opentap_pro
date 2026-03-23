@@ -4,14 +4,22 @@
   <meta charset="utf-8">
   
   
-  <title>Tag: 资源生命周期 | Hexo</title>
+  <title>机制图解｜PrePlanRun/PostPlanRun 的反射快路径与逆序收尾 | Hexo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="Hexo">
-<meta property="og:url" content="http://example.com/tags/%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/index.html">
+  <meta name="description" content="背景很多人会在自定义 Step 里重写 PrePlanRun() 和 PostPlanRun() 做连接预热、缓存准备、状态回收。但在大计划里，绝大多数步骤并不会重写这两个方法。如果框架每次都无脑调用一遍空实现，累计开销并不小。OpenTAP 在这里做了一个很实用的优化：先判断“这个类型是否真的重写过”，再决定要不要进入 Pre&#x2F;Post 生命周期，同时保证收尾顺序正确。 框架分析核心思">
+<meta property="og:type" content="article">
+<meta property="og:title" content="机制图解｜PrePlanRun&#x2F;PostPlanRun 的反射快路径与逆序收尾">
+<meta property="og:url" content="http://example.com/2026/03/23/2026-03-23-opentap-prepostplanrun-fastpath/index.html">
 <meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="背景很多人会在自定义 Step 里重写 PrePlanRun() 和 PostPlanRun() 做连接预热、缓存准备、状态回收。但在大计划里，绝大多数步骤并不会重写这两个方法。如果框架每次都无脑调用一遍空实现，累计开销并不小。OpenTAP 在这里做了一个很实用的优化：先判断“这个类型是否真的重写过”，再决定要不要进入 Pre&#x2F;Post 生命周期，同时保证收尾顺序正确。 框架分析核心思">
 <meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-03-23T02:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-23T02:00:59.226Z">
 <meta property="article:author" content="John Doe">
+<meta property="article:tag" content="Engine">
+<meta property="article:tag" content="OpenTAP">
+<meta property="article:tag" content="TestPlanExecution">
+<meta property="article:tag" content="TestStep">
 <meta name="twitter:card" content="summary">
   
     <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
@@ -69,39 +77,86 @@
 </header>
 
       <div class="outer">
-        <section id="main">
-  
-  
-    
-    
-      
-      
-      <section class="archives-wrap">
-        <div class="archive-year-wrap">
-          <a href="/archives/2026" class="archive-year">2026</a>
-        </div>
-        <div class="archives">
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/02/16/2026-02-16-opentap-testplan-execution/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-02-16T02:00:00.000Z" itemprop="datePublished">Feb 16</time>
+        <section id="main"><article id="post-2026-03-23-opentap-prepostplanrun-fastpath" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/23/2026-03-23-opentap-prepostplanrun-fastpath/" class="article-date">
+  <time class="dt-published" datetime="2026-03-23T02:00:00.000Z" itemprop="datePublished">2026-03-23</time>
 </a>
-      
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/OpenTAP/">OpenTAP</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
   
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/02/16/2026-02-16-opentap-testplan-execution/">OpenTAP TestPlanExecution：测试计划执行机制深度解析</a>
+    <h1 class="p-name article-title" itemprop="headline name">
+      机制图解｜PrePlanRun/PostPlanRun 的反射快路径与逆序收尾
     </h1>
   
 
-    </header>
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>很多人会在自定义 Step 里重写 <code>PrePlanRun()</code> 和 <code>PostPlanRun()</code> 做连接预热、缓存准备、状态回收。但在大计划里，绝大多数步骤并不会重写这两个方法。如果框架每次都无脑调用一遍空实现，累计开销并不小。OpenTAP 在这里做了一个很实用的优化：先判断“这个类型是否真的重写过”，再决定要不要进入 Pre&#x2F;Post 生命周期，同时保证收尾顺序正确。</p>
+<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p>核心思路有两层：</p>
+<ol>
+<li><strong>类型级缓存</strong>：<code>TestStep</code> 里用 <code>Dictionary&lt;Type, bool&gt;</code> 缓存“是否重写 Pre&#x2F;Post”结果，避免反射重复计算。</li>
+<li><strong>实例级短路</strong>：每个步骤实例首次访问 <code>PrePostPlanRunUsed</code> 时再取缓存，后续直接走布尔值。</li>
+</ol>
+<p>执行阶段上，<code>RunPrePlanRunMethods()</code> 会在递归遍历步骤树时决定是否调用 <code>PrePlanRun()</code>；结束阶段 <code>finishTestPlanRun()</code> 再按 <code>StepsWithPrePlanRun</code> 的<strong>逆序</strong>回放 <code>PostPlanRun()</code>。这就天然形成“先初始化的后释放”，和栈式资源管理一致。</p>
+<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>可以在本地直接复现这条链路：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line">grep -n <span class="string">&quot;PrePostPlanRunUsed\|RunPrePlanRunMethods\|PostPlanRun&quot;</span> Engine/TestStep.cs Engine/TestPlanExecution.cs</span><br></pre></td></tr></table></figure>
+
+<p>读代码时建议关注三个点：</p>
+<ul>
+<li><code>Engine/TestStep.cs</code>：<code>preOrPostPlanRunOverridden(Type t)</code> 通过方法句柄比对判断是否重写，并写入静态字典。</li>
+<li><code>Engine/TestPlanExecution.cs</code>：预执行阶段仅在 <code>PrePostPlanRunUsed == true</code> 时才真正调用 <code>step.PrePlanRun()</code>。</li>
+<li>同文件收尾逻辑：<code>for (int i = run.StepsWithPrePlanRun.Count - 1; i &gt;= 0; i--)</code> 逆序执行 <code>step.PostPlanRun()</code>，避免资源释放顺序错乱。</li>
+</ul>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><ul>
+<li>这个优化依赖“方法重写检测”，如果插件通过非常规方式注入行为（而非 override），可能不会触发预期路径。</li>
+<li><code>StepsWithPrePlanRun</code> 记录的是已进入预执行链路的步骤，排查收尾遗漏时先看这个列表是否入栈。</li>
+<li><code>PostPlanRun()</code> 异常不会让流程再次崩掉，只会记录告警并继续收尾；插件开发应自行保证幂等和可重入。</li>
+</ul>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>这段实现的价值在于：既减少了空生命周期调用的常态成本，又通过逆序回放把资源释放语义做对了。对包含大量“模板步骤”的测试计划，这种“先判断再调用”的快路径能明显降低无效开销，同时让 Pre&#x2F;Post 的行为更可预测。</p>
+<p><strong>关键源码路径：</strong></p>
+<ul>
+<li><code>Engine/TestStep.cs</code></li>
+<li><code>Engine/TestPlanExecution.cs</code></li>
+<li><code>Engine/TestPlanRun.cs</code></li>
+</ul>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2026/03/23/2026-03-23-opentap-prepostplanrun-fastpath/" data-id="cuid6cFcu7ympuT_QDi4sDzhC" data-title="机制图解｜PrePlanRun/PostPlanRun 的反射快路径与逆序收尾" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Engine/" rel="tag">Engine</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/TestPlanExecution/" rel="tag">TestPlanExecution</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/TestStep/" rel="tag">TestStep</a></li></ul>
+
+    </footer>
   </div>
+  
+    
+<nav id="article-nav">
+  
+  
+    <a href="/2026/03/22/2026-03-22-opentap-verdict-upgrade-lock/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">性能视角｜Verdict 升级为什么用“双重检查 + 细粒度锁”</div>
+    </a>
+  
+</nav>
+
+  
 </article>
-  
-  
-    </div></section>
-  
 
 
 </section>

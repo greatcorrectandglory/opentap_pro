@@ -71,6 +71,76 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-2026-03-12-opentap-dependencyanalyzer-broken-propagation" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/12/2026-03-12-opentap-dependencyanalyzer-broken-propagation/" class="article-date">
+  <time class="dt-published" datetime="2026-03-12T02:00:00.000Z" itemprop="datePublished">2026-03-12</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/OpenTAP%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">OpenTAP源码分析</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/03/12/2026-03-12-opentap-dependencyanalyzer-broken-propagation/">工程实践｜OpenTAP 包依赖故障的级联判定</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>在产线环境里，插件包问题很少是“只坏一个包”这么简单。更常见的情况是：底层公共包版本不兼容，表面上看是 A 包报错，实际会连带一串上层工具包都不可用。OpenTAP 在 Package 模块里并没有只做一层依赖检查，而是把“直接损坏”和“被牵连损坏”分开建模，这让排障时能快速区分根因与影响面。</p>
+<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p>这套逻辑主要在 <code>Package/DependencyAnalyzer.cs</code>。核心思路是三步：</p>
+<ol>
+<li>先构建 <code>packagesLookup</code>（按包名索引）与 <code>dependers</code>（反向依赖图）。</li>
+<li>第一轮遍历只判定“直接损坏”：依赖缺失，或版本不满足 <code>VersionSpecifier.IsCompatible(...)</code>，当前包就加入 <code>broken_packages</code>。</li>
+<li>第二轮做级联扩散：把已损坏包压栈，沿 <code>dependers</code> 向上游传播，直到没有新增节点。</li>
+</ol>
+<p>因此 <code>BrokenPackages</code> 表示的是“最终不可用集合”，不是单点检测结果。<code>GetIssues()</code> 再把具体问题分类为 <code>Missing</code>、<code>IncompatibleVersion</code>、<code>DependencyMissing</code>，用于输出更可读的诊断信息。</p>
+<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>复现这段机制很直接，先在源码里定位关键符号：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line">grep -n <span class="string">&quot;BuildAnalyzerContext\|broken_packages\|dependers\|GetIssues&quot;</span> Package/DependencyAnalyzer.cs</span><br></pre></td></tr></table></figure>
+
+<p>阅读时重点看两个循环：</p>
+<ul>
+<li><strong>建图循环</strong>：处理每个 <code>package.Dependencies</code>，补齐缺失包占位（<code>Version = null</code>），并登记反向边 <code>dependers[loaded].Add(package)</code>。</li>
+<li><strong>扩散循环</strong>：<code>newBroken</code> 栈持续弹出损坏节点，把所有依赖它的包也标记为损坏。</li>
+</ul>
+<p>这其实是一个在反向依赖图上的可达性传播。工程价值在于：你不用逐层手算“谁会被牵连”，框架会给出完整影响范围。</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>第一，<code>BuildAnalyzerContext</code> 内部用包名去重（同名取首个），如果仓库里并存多版本同名包，分析结果会偏向当前选择版本。第二，<code>Missing</code> 与 <code>DependencyMissing</code> 要分开看：前者更接近根因，后者通常是连带影响。第三，自动修复脚本应优先处理底层缺失&#x2F;版本冲突，再重跑分析，不要直接对上层报错包做“头痛医头”式升级。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p><code>DependencyAnalyzer</code> 的价值不在“判断某个依赖是否兼容”，而在把依赖故障从点扩展成图：先识别根因，再量化波及范围。对持续集成和批量升级场景，这种级联判定能显著降低误判与重复修复成本。</p>
+<p><strong>关键源码路径：</strong></p>
+<ul>
+<li><code>Package/DependencyAnalyzer.cs</code></li>
+<li><code>Package/DependencyChecker.cs</code></li>
+<li><code>Package/PackageSpecifier.cs</code></li>
+<li><code>Package/VersionSpecifier.cs</code></li>
+</ul>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2026/03/12/2026-03-12-opentap-dependencyanalyzer-broken-propagation/" data-id="cuidLGNgQZZa1Sw0Wqsj2OQn0" data-title="工程实践｜OpenTAP 包依赖故障的级联判定" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Dependency/" rel="tag">Dependency</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Package/" rel="tag">Package</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/" rel="tag">工程实践</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-2026-03-11-opentap-open-execute-state-reuse" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/03/11/2026-03-11-opentap-open-execute-state-reuse/" class="article-date">
@@ -735,82 +805,6 @@
 
 
   
-    <article id="post-2026-03-02-opentap-resultlistener-async-pipeline" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
-  <div class="article-meta">
-    <a href="/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/" class="article-date">
-  <time class="dt-published" datetime="2026-03-02T02:00:00.000Z" itemprop="datePublished">2026-03-02</time>
-</a>
-    
-  <div class="article-category">
-    <a class="article-category-link" href="/categories/OpenTAP/">OpenTAP</a>►<a class="article-category-link" href="/categories/OpenTAP/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">源码分析</a>
-  </div>
-
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/">OpenTAP 结果监听器的异步分发链路</a>
-    </h1>
-  
-
-      </header>
-    
-    <div class="e-content article-entry" itemprop="articleBody">
-      
-        <h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>在 OpenTAP 项目里，很多人会把注意力放在 TestStep 执行本身，但线上稳定性问题往往出在“结果如何被消费”。如果结果写入慢、监听器抛异常、或者吞吐打满，测试主流程会不会被拖死？今天只看一个点：<strong>ResultListener 的异步分发链路</strong>。这个主题属于 Engine 执行层，重点是 OpenTAP 如何在“实时产出结果”和“结果可靠落盘&#x2F;上报”之间做平衡。</p>
-<h2 id="框架分析"><a href="#框架分析" class="headerlink" title="框架分析"></a>框架分析</h2><p>整体链路可以概括为四段：</p>
-<ol>
-<li><code>TestStep</code> 将结果写入 <code>ResultSource</code>（结果暂存）；</li>
-<li><code>ResultSource</code> 把表格结果封装后交给 <code>TestPlanRun</code>；</li>
-<li><code>TestPlanRun</code> 为每个 <code>IResultListener</code> 维护独立 <code>WorkQueue</code>，在结果线程中调度；</li>
-<li>各监听器并行消费，异常监听器被隔离并移除，不阻塞整场执行。</li>
-</ol>
-<p>这里最关键的设计不是“多线程”本身，而是<strong>每个监听器独立队列</strong>。这意味着一个慢监听器只会积压自己的队列，不会直接卡住其他监听器；同时系统会根据 <code>EngineSettings</code> 里的延迟阈值做背压，必要时让测试流程短暂停顿，避免内存无上限堆积。</p>
-<h2 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h2><p>从入口看，<code>TestPlanExecution.DoExecute(...)</code> 会把配置的监听器（再加上 summary listener）挂到当前 <code>TestPlanRun</code>。运行中，步骤产生结果后进入 <code>Engine/ResultProxy.cs</code> 的传播逻辑，后续调用 <code>TestPlanRun.ScheduleInResultProcessingThread(...)</code> 把任务投递到对应监听器的 <code>WorkQueue</code>。</p>
-<p>调度执行时，OpenTAP 做了两层保护：</p>
-<ul>
-<li><strong>能力判断</strong>：例如 <code>ResultListener.ImplementsOnResultsPublished(...)</code> 用于判断监听器是否真正覆写了相关处理函数，避免无效调度；</li>
-<li><strong>故障隔离</strong>：监听器抛异常时会触发 <code>RemoveFaultyResultListener(...)</code>，记录告警后把故障节点摘掉，确保主执行还能继续。</li>
-</ul>
-<p>你可以在本地仓库直接复现调用链定位：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /home/ops/clawd/repos/opentap</span><br><span class="line"><span class="comment"># 1) 看执行入口如何装配监听器</span></span><br><span class="line">grep -n <span class="string">&quot;DoExecute\|summaryListener\|AddResultListener&quot;</span> Engine/TestPlanExecution.cs</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 看 TestPlanRun 如何为监听器建队列与调度</span></span><br><span class="line">grep -n <span class="string">&quot;WorkQueue\|ScheduleInResultProcessingThread\|RemoveFaultyResultListener&quot;</span> Engine/TestPlanRun.cs</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 看结果从 ResultProxy 如何扇出到监听器</span></span><br><span class="line">grep -n <span class="string">&quot;PublishResultTableInvokable\|ImplementsOnResultsPublished&quot;</span> Engine/ResultProxy.cs Engine/ResultListener.cs</span><br></pre></td></tr></table></figure>
-
-<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><ul>
-<li>写自定义 ResultListener 时，不要在回调里做长时间阻塞 I&#x2F;O（尤其同步网络写入），否则很容易触发结果延迟背压；</li>
-<li>监听器内部要做好异常收敛和降级，别把“偶发上传失败”变成“监听器整体被移除”；</li>
-<li>如果你发现测试阶段性停顿，但步骤 CPU 并不高，先查结果队列积压，而不是先怀疑步骤逻辑。</li>
-</ul>
-<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>OpenTAP 在结果分发上的核心不是“把数据发出去”，而是“让结果处理失败时系统仍可运行”。<code>ResultSource -&gt; TestPlanRun -&gt; WorkQueue -&gt; IResultListener</code> 这条异步链路，把吞吐、隔离和可恢复性放在了同一层设计里。对做产线自动化的人来说，这比单次跑得快更重要：它决定了系统在长时间连续运行下是否稳定。</p>
-<p><strong>关键源码路径：</strong></p>
-<ul>
-<li><code>Engine/TestPlanExecution.cs</code></li>
-<li><code>Engine/TestPlanRun.cs</code></li>
-<li><code>Engine/ResultProxy.cs</code></li>
-<li><code>Engine/ResultListener.cs</code></li>
-<li><code>Engine/EngineSettings.cs</code></li>
-</ul>
-
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="http://example.com/2026/03/02/2026-03-02-opentap-resultlistener-async-pipeline/" data-id="cuidgSQFp0qnV9Rc0mPsssFYN" data-title="OpenTAP 结果监听器的异步分发链路" class="article-share-link"><span class="fa fa-share">Share</span></a>
-      
-      
-      
-  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/ResultListener/" rel="tag">ResultListener</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/TestPlanExecution/" rel="tag">TestPlanExecution</a></li></ul>
-
-    </footer>
-  </div>
-  
-</article>
-
-
-
-  
 
 
   <nav id="page-nav">
@@ -846,7 +840,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">Tag Cloud</h3>
     <div class="widget tagcloud">
-      <a href="/tags/BreakCondition/" style="font-size: 10px;">BreakCondition</a> <a href="/tags/Browser-Relay/" style="font-size: 10px;">Browser Relay</a> <a href="/tags/C/" style="font-size: 11.43px;">C#</a> <a href="/tags/CLI/" style="font-size: 12.86px;">CLI</a> <a href="/tags/CancellationToken/" style="font-size: 10px;">CancellationToken</a> <a href="/tags/Cron/" style="font-size: 10px;">Cron</a> <a href="/tags/Dependency/" style="font-size: 10px;">Dependency</a> <a href="/tags/Download/" style="font-size: 10px;">Download</a> <a href="/tags/Engine/" style="font-size: 18.57px;">Engine</a> <a href="/tags/ExternalParameter/" style="font-size: 10px;">ExternalParameter</a> <a href="/tags/FileLock/" style="font-size: 10px;">FileLock</a> <a href="/tags/LazyResourceManager/" style="font-size: 10px;">LazyResourceManager</a> <a href="/tags/Logging/" style="font-size: 10px;">Logging</a> <a href="/tags/Mixin/" style="font-size: 10px;">Mixin</a> <a href="/tags/Network/" style="font-size: 10px;">Network</a> <a href="/tags/OpenTAP/" style="font-size: 20px;">OpenTAP</a> <a href="/tags/Package/" style="font-size: 15.71px;">Package</a> <a href="/tags/PluginManager/" style="font-size: 14.29px;">PluginManager</a> <a href="/tags/PostPlanRun/" style="font-size: 10px;">PostPlanRun</a> <a href="/tags/PrePlanRun/" style="font-size: 10px;">PrePlanRun</a> <a href="/tags/Resilience/" style="font-size: 10px;">Resilience</a> <a href="/tags/Resource/" style="font-size: 15.71px;">Resource</a> <a href="/tags/ResourceTaskManager/" style="font-size: 10px;">ResourceTaskManager</a> <a href="/tags/ResultListener/" style="font-size: 10px;">ResultListener</a> <a href="/tags/SemVer/" style="font-size: 10px;">SemVer</a> <a href="/tags/Serializer/" style="font-size: 10px;">Serializer</a> <a href="/tags/TestPlan/" style="font-size: 10px;">TestPlan</a> <a href="/tags/TestPlanExecution/" style="font-size: 15.71px;">TestPlanExecution</a> <a href="/tags/TestStep/" style="font-size: 17.14px;">TestStep</a> <a href="/tags/TestStepRun/" style="font-size: 10px;">TestStepRun</a> <a href="/tags/ThreadManager/" style="font-size: 10px;">ThreadManager</a> <a href="/tags/Verdict/" style="font-size: 11.43px;">Verdict</a> <a href="/tags/WorkQueue/" style="font-size: 10px;">WorkQueue</a> <a href="/tags/%E4%BE%9D%E8%B5%96%E7%AE%A1%E7%90%86/" style="font-size: 10px;">依赖管理</a> <a href="/tags/%E5%85%BC%E5%AE%B9%E6%80%A7/" style="font-size: 10px;">兼容性</a> <a href="/tags/%E5%8F%8D%E5%B0%84/" style="font-size: 10px;">反射</a> <a href="/tags/%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8E%A5%E5%8F%A3/" style="font-size: 10px;">命令行接口</a> <a href="/tags/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/" style="font-size: 10px;">工程实践</a> <a href="/tags/%E5%B9%B6%E5%8F%91/" style="font-size: 11.43px;">并发</a> <a href="/tags/%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/" style="font-size: 10px;">并发控制</a> <a href="/tags/%E5%BA%8F%E5%88%97%E5%8C%96/" style="font-size: 10px;">序列化</a> <a href="/tags/%E5%BC%95%E7%94%A8%E8%AE%A1%E6%95%B0/" style="font-size: 10px;">引用计数</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%9C%BA%E5%88%B6/" style="font-size: 10px;">执行机制</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%A8%A1%E5%9E%8B/" style="font-size: 10px;">执行模型</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" style="font-size: 10px;">执行流程</a> <a href="/tags/%E6%89%A9%E5%B1%95%E6%9C%BA%E5%88%B6/" style="font-size: 10px;">扩展机制</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">插件架构</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F/" style="font-size: 11.43px;">插件系统</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">架构</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" style="font-size: 10px;">架构分析</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" style="font-size: 15.71px;">架构设计</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试执行</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">测试架构</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%A1%86%E6%9E%B6/" style="font-size: 12.86px;">测试框架</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%AD%A5%E9%AA%A4/" style="font-size: 10px;">测试步骤</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试计划执行</a> <a href="/tags/%E7%8A%B6%E6%80%81%E7%AE%A1%E7%90%86/" style="font-size: 10px;">状态管理</a> <a href="/tags/%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 12.86px;">生命周期</a> <a href="/tags/%E7%A8%8B%E5%BA%8F%E9%9B%86%E5%8A%A0%E8%BD%BD/" style="font-size: 10px;">程序集加载</a> <a href="/tags/%E7%BB%93%E6%9E%9C%E7%AE%A1%E7%90%86/" style="font-size: 10px;">结果管理</a> <a href="/tags/%E8%87%AA%E5%8A%A8%E5%8C%96/" style="font-size: 10px;">自动化</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 10px;">资源生命周期</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%AE%A1%E7%90%86/" style="font-size: 10px;">资源管理</a> <a href="/tags/%E8%BF%90%E7%BB%B4/" style="font-size: 10px;">运维</a>
+      <a href="/tags/BreakCondition/" style="font-size: 10px;">BreakCondition</a> <a href="/tags/Browser-Relay/" style="font-size: 10px;">Browser Relay</a> <a href="/tags/C/" style="font-size: 11.25px;">C#</a> <a href="/tags/CLI/" style="font-size: 12.5px;">CLI</a> <a href="/tags/CancellationToken/" style="font-size: 10px;">CancellationToken</a> <a href="/tags/Cron/" style="font-size: 10px;">Cron</a> <a href="/tags/Dependency/" style="font-size: 10px;">Dependency</a> <a href="/tags/Download/" style="font-size: 10px;">Download</a> <a href="/tags/Engine/" style="font-size: 18.75px;">Engine</a> <a href="/tags/ExternalParameter/" style="font-size: 10px;">ExternalParameter</a> <a href="/tags/FileLock/" style="font-size: 10px;">FileLock</a> <a href="/tags/LazyResourceManager/" style="font-size: 10px;">LazyResourceManager</a> <a href="/tags/Logging/" style="font-size: 10px;">Logging</a> <a href="/tags/Mixin/" style="font-size: 10px;">Mixin</a> <a href="/tags/Network/" style="font-size: 10px;">Network</a> <a href="/tags/OpenTAP/" style="font-size: 20px;">OpenTAP</a> <a href="/tags/Package/" style="font-size: 15px;">Package</a> <a href="/tags/PluginManager/" style="font-size: 13.75px;">PluginManager</a> <a href="/tags/PostPlanRun/" style="font-size: 10px;">PostPlanRun</a> <a href="/tags/PrePlanRun/" style="font-size: 10px;">PrePlanRun</a> <a href="/tags/Resilience/" style="font-size: 10px;">Resilience</a> <a href="/tags/Resource/" style="font-size: 15px;">Resource</a> <a href="/tags/ResourceTaskManager/" style="font-size: 10px;">ResourceTaskManager</a> <a href="/tags/ResultListener/" style="font-size: 10px;">ResultListener</a> <a href="/tags/SemVer/" style="font-size: 10px;">SemVer</a> <a href="/tags/Serializer/" style="font-size: 10px;">Serializer</a> <a href="/tags/TestPlan/" style="font-size: 10px;">TestPlan</a> <a href="/tags/TestPlanExecution/" style="font-size: 16.25px;">TestPlanExecution</a> <a href="/tags/TestStep/" style="font-size: 17.5px;">TestStep</a> <a href="/tags/TestStepRun/" style="font-size: 10px;">TestStepRun</a> <a href="/tags/ThreadManager/" style="font-size: 10px;">ThreadManager</a> <a href="/tags/Verdict/" style="font-size: 11.25px;">Verdict</a> <a href="/tags/WorkQueue/" style="font-size: 10px;">WorkQueue</a> <a href="/tags/%E4%BE%9D%E8%B5%96%E7%AE%A1%E7%90%86/" style="font-size: 10px;">依赖管理</a> <a href="/tags/%E5%85%BC%E5%AE%B9%E6%80%A7/" style="font-size: 10px;">兼容性</a> <a href="/tags/%E5%8F%8D%E5%B0%84/" style="font-size: 10px;">反射</a> <a href="/tags/%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%8E%A5%E5%8F%A3/" style="font-size: 10px;">命令行接口</a> <a href="/tags/%E5%B7%A5%E7%A8%8B%E5%AE%9E%E8%B7%B5/" style="font-size: 10px;">工程实践</a> <a href="/tags/%E5%B9%B6%E5%8F%91/" style="font-size: 11.25px;">并发</a> <a href="/tags/%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/" style="font-size: 10px;">并发控制</a> <a href="/tags/%E5%BA%8F%E5%88%97%E5%8C%96/" style="font-size: 10px;">序列化</a> <a href="/tags/%E5%BC%95%E7%94%A8%E8%AE%A1%E6%95%B0/" style="font-size: 10px;">引用计数</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%9C%BA%E5%88%B6/" style="font-size: 10px;">执行机制</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%A8%A1%E5%9E%8B/" style="font-size: 10px;">执行模型</a> <a href="/tags/%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" style="font-size: 10px;">执行流程</a> <a href="/tags/%E6%89%A9%E5%B1%95%E6%9C%BA%E5%88%B6/" style="font-size: 10px;">扩展机制</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">插件架构</a> <a href="/tags/%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F/" style="font-size: 11.25px;">插件系统</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">架构</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/" style="font-size: 10px;">架构分析</a> <a href="/tags/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" style="font-size: 15px;">架构设计</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试执行</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">测试架构</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%A1%86%E6%9E%B6/" style="font-size: 12.5px;">测试框架</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E6%AD%A5%E9%AA%A4/" style="font-size: 10px;">测试步骤</a> <a href="/tags/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92%E6%89%A7%E8%A1%8C/" style="font-size: 10px;">测试计划执行</a> <a href="/tags/%E7%8A%B6%E6%80%81%E7%AE%A1%E7%90%86/" style="font-size: 10px;">状态管理</a> <a href="/tags/%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 12.5px;">生命周期</a> <a href="/tags/%E7%A8%8B%E5%BA%8F%E9%9B%86%E5%8A%A0%E8%BD%BD/" style="font-size: 10px;">程序集加载</a> <a href="/tags/%E7%BB%93%E6%9E%9C%E7%AE%A1%E7%90%86/" style="font-size: 10px;">结果管理</a> <a href="/tags/%E8%87%AA%E5%8A%A8%E5%8C%96/" style="font-size: 10px;">自动化</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/" style="font-size: 10px;">资源生命周期</a> <a href="/tags/%E8%B5%84%E6%BA%90%E7%AE%A1%E7%90%86/" style="font-size: 10px;">资源管理</a> <a href="/tags/%E8%BF%90%E7%BB%B4/" style="font-size: 10px;">运维</a>
     </div>
   </div>
 
@@ -868,6 +862,10 @@
       <ul>
         
           <li>
+            <a href="/2026/03/23/2026-03-23-opentap-prepostplanrun-fastpath/">机制图解｜PrePlanRun/PostPlanRun 的反射快路径与逆序收尾</a>
+          </li>
+        
+          <li>
             <a href="/2026/03/22/2026-03-22-opentap-verdict-upgrade-lock/">性能视角｜Verdict 升级为什么用“双重检查 + 细粒度锁”</a>
           </li>
         
@@ -881,10 +879,6 @@
         
           <li>
             <a href="/2026/03/19/2026-03-19-opentap-thread-abort-token-link/">实战避坑｜TapThread 取消信号为什么会“父停子停”</a>
-          </li>
-        
-          <li>
-            <a href="/2026/03/17/2026-03-17-opentap-package-download-resume/">性能视角｜OpenTAP 包下载的断点续传：60 次重试背后的网络韧性</a>
           </li>
         
       </ul>

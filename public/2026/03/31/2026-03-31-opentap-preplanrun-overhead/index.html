@@ -4,14 +4,19 @@
   <meta charset="utf-8">
   
   
-  <title>Archives: 2026/3 | Hexo</title>
+  <title>实战避坑｜TestPlanExecution 的 PrePlanRun 隐藏开销与优化 | Hexo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="Hexo">
-<meta property="og:url" content="http://example.com/archives/2026/03/page/2/index.html">
+  <meta name="description" content="OpenTAP 在执行测试计划前，会递归调用所有启用步骤的 PrePlanRun() 方法。官方文档只提到“做预准备”，却鲜少提及：当计划含上千步骤且嵌套层级深时，这一阶段可能成为启动瓶颈。今天从源码角度拆解其执行链路，并给出可落地的提速方案。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="实战避坑｜TestPlanExecution 的 PrePlanRun 隐藏开销与优化">
+<meta property="og:url" content="http://example.com/2026/03/31/2026-03-31-opentap-preplanrun-overhead/index.html">
 <meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="OpenTAP 在执行测试计划前，会递归调用所有启用步骤的 PrePlanRun() 方法。官方文档只提到“做预准备”，却鲜少提及：当计划含上千步骤且嵌套层级深时，这一阶段可能成为启动瓶颈。今天从源码角度拆解其执行链路，并给出可落地的提速方案。">
 <meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-03-31T02:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-31T02:01:34.079Z">
 <meta property="article:author" content="John Doe">
+<meta property="article:tag" content="OpenTAP">
 <meta name="twitter:card" content="summary">
   
     <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
@@ -69,216 +74,91 @@
 </header>
 
       <div class="outer">
-        <section id="main">
-  
-  
-    
-    
-      
-      
-      <section class="archives-wrap">
-        <div class="archive-year-wrap">
-          <a href="/archives/2026" class="archive-year">2026</a>
-        </div>
-        <div class="archives">
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/17/2026-03-17-opentap-package-download-resume/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-17T02:00:00.000Z" itemprop="datePublished">Mar 17</time>
+        <section id="main"><article id="post-2026-03-31-opentap-preplanrun-overhead" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/31/2026-03-31-opentap-preplanrun-overhead/" class="article-date">
+  <time class="dt-published" datetime="2026-03-31T02:00:00.000Z" itemprop="datePublished">2026-03-31</time>
 </a>
-      
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
   
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/17/2026-03-17-opentap-package-download-resume/">性能视角｜OpenTAP 包下载的断点续传：60 次重试背后的网络韧性</a>
+    <h1 class="p-name article-title" itemprop="headline name">
+      实战避坑｜TestPlanExecution 的 PrePlanRun 隐藏开销与优化
     </h1>
   
 
-    </header>
-  </div>
-</article>
-  
+      </header>
     
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/16/2026-03-16-opentap-resource-beginstep-stage-gating/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-16T02:00:00.000Z" itemprop="datePublished">Mar 16</time>
-</a>
+    <div class="e-content article-entry" itemprop="articleBody">
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/16/2026-03-16-opentap-resource-beginstep-stage-gating/">机制图解｜资源不是一开始全开：BeginStep 的阶段门控策略</a>
-    </h1>
-  
+        <p>OpenTAP 在执行测试计划前，会递归调用所有启用步骤的 <code>PrePlanRun()</code> 方法。官方文档只提到“做预准备”，却鲜少提及：当计划含上千步骤且嵌套层级深时，这一阶段可能成为启动瓶颈。今天从源码角度拆解其执行链路，并给出可落地的提速方案。</p>
+<span id="more"></span>
 
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/15/2026-03-15-opentap-preplanrun-postplanrun-ordering/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-15T02:00:00.000Z" itemprop="datePublished">Mar 15</time>
-</a>
+<h2 id="背景：启动慢，别只怪仪器连接"><a href="#背景：启动慢，别只怪仪器连接" class="headerlink" title="背景：启动慢，别只怪仪器连接"></a>背景：启动慢，别只怪仪器连接</h2><p>不少开发者把“测试启动卡几秒”归咎于仪器 <code>Open()</code>，却忽视 PrePlanRun 的串行递归。引擎主函数 <code>ExecTestPlan</code> 在真正跑步骤前，会：</p>
+<ol>
+<li>调用 <code>RunPrePlanRunMethods</code> 递归遍历所有启用节点；</li>
+<li>对每一步包裹 <code>ResourceManager.BeginStep/EndStep</code>；</li>
+<li>默认串行，且单线程内完成。</li>
+</ol>
+<p>若单步 PrePlanRun 平均 5 ms，1000 步就是 5 s，且无法通过并行仪器连接隐藏。</p>
+<h2 id="框架分析：递归与资源令牌"><a href="#框架分析：递归与资源令牌" class="headerlink" title="框架分析：递归与资源令牌"></a>框架分析：递归与资源令牌</h2><p>核心代码在 <code>Engine/TestPlanExecution.cs</code>：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">static</span> <span class="built_in">bool</span> <span class="title">RunPrePlanRunMethods</span>(<span class="params">IList&lt;ITestStep&gt; steps, TestPlanRun planRun</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">foreach</span> (ITestStep step <span class="keyword">in</span> steps)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="keyword">if</span> (step.Enabled == <span class="literal">false</span>) <span class="keyword">continue</span>;</span><br><span class="line">        <span class="built_in">bool</span> runPre = <span class="literal">true</span>;</span><br><span class="line">        <span class="keyword">if</span>(step <span class="keyword">is</span> TestStep s)</span><br><span class="line">            runPre = s.PrePostPlanRunUsed;      <span class="comment">// 关键开关</span></span><br><span class="line">        <span class="keyword">if</span> (runPre)</span><br><span class="line">        &#123;</span><br><span class="line">            planRun.ResourceManager.BeginStep(..., TestPlanExecutionStage.PrePlanRun, ...);</span><br><span class="line">            step.PrePlanRun();                  <span class="comment">// 用户代码在此</span></span><br><span class="line">            planRun.ResourceManager.EndStep(...);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (!RunPrePlanRunMethods(step.ChildTestSteps, planRun))</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;                       <span class="comment">// 深度优先</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>PrePostPlanRunUsed</code> 是 <code>TestStep</code> 的 internal bool，默认 true；</li>
+<li><code>BeginStep/EndStep</code> 会拿资源锁，即使步骤本身并不访问仪器；</li>
+<li>递归返回 false 即短路，任何异常都会中止整个计划。</li>
+</ul>
+<h2 id="实现过程：把“无实际预操作”的步骤标记为跳过"><a href="#实现过程：把“无实际预操作”的步骤标记为跳过" class="headerlink" title="实现过程：把“无实际预操作”的步骤标记为跳过"></a>实现过程：把“无实际预操作”的步骤标记为跳过</h2><p>若自定义步骤无需 PrePlanRun，可在构造函数关闭标记：</p>
+<figure class="highlight csharp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">[<span class="meta">DisplayName(<span class="string">&quot;MyFastStep&quot;</span>)</span>]</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title">MyFastStep</span> : <span class="title">TestStep</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">MyFastStep</span>()</span></span><br><span class="line">    &#123;</span><br><span class="line">        <span class="comment">// 关闭 Pre/Post 钩子，引擎将直接跳过</span></span><br><span class="line">        PrePostPlanRunUsed = <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">override</span> <span class="keyword">void</span> <span class="title">Run</span>()</span></span><br><span class="line">    &#123;</span><br><span class="line">        <span class="comment">// 真正逻辑</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>对于无状态、不占用硬件的步骤（计算、判读、延迟等），此举可把耗时从 O(n) 降到 0。</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><ol>
+<li>仅当步骤确定不依赖 <code>PrePlanRun()</code> 内初始化资源、不抛出异常时再关闭；</li>
+<li>关闭后 <code>PlanRun</code> 属性在 <code>PrePlanRun</code> 阶段不再注入，若代码后期重构依赖该属性会 NPE；</li>
+<li>官方内置的 <code>DelayStep</code>、<code>RepeatStep</code> 已默认关闭，可作为参考；</li>
+<li>若步骤需要动态启用&#x2F;禁用 PrePlanRun，可在 <code>OnEnabledChanged</code> 里同步修改 <code>PrePostPlanRunUsed</code>。</li>
+</ol>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>PrePlanRun 的设计让“准备动作”有了统一钩子，却也带来串行开销。通过合理使用 <code>PrePostPlanRunUsed = false</code>，可把启动时间从秒级降到毫秒级，尤其对大批量无状态步骤场景效果显著。下次遇到“计划启动慢”，先 profile 一下 PrePlanRun，再决定要不要并行开仪器，别一味加线程。</p>
+<h2 id="可复现验证"><a href="#可复现验证" class="headerlink" title="可复现验证"></a>可复现验证</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建 500 个空步骤并测量启动耗时</span></span><br><span class="line">tap run --verbose --profile PrePlanRun.json preplan-demo.TapPlan</span><br><span class="line"><span class="comment"># 观察日志 &quot;PrePlanRun Methods completed&quot; 时间戳</span></span><br><span class="line"><span class="comment"># 修改步骤源码关闭 PrePostPlanRunUsed 后重新运行，对比耗时</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="关键源码路径"><a href="#关键源码路径" class="headerlink" title="关键源码路径"></a>关键源码路径</h2><ul>
+<li><code>Engine/TestPlanExecution.cs</code>：RunPrePlanRunMethods、ExecTestPlan</li>
+<li><code>Engine/TestStep.cs</code>：PrePostPlanRunUsed 属性定义</li>
+<li><code>Engine/ResourceManager.cs</code>：BeginStep&#x2F;EndStep 资源锁实现</li>
+</ul>
+
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/15/2026-03-15-opentap-preplanrun-postplanrun-ordering/">源码拆解｜PrePlanRun 失败后为何仍会执行逆序 PostPlanRun</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/14/2026-03-14-opentap-lazy-resource-manager-refcount/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-14T02:00:00.000Z" itemprop="datePublished">Mar 14</time>
-</a>
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2026/03/31/2026-03-31-opentap-preplanrun-overhead/" data-id="cuidY7Z-7jri4pUEgvqa4YYoR" data-title="实战避坑｜TestPlanExecution 的 PrePlanRun 隐藏开销与优化" class="article-share-link"><span class="fa fa-share">Share</span></a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/14/2026-03-14-opentap-lazy-resource-manager-refcount/">实战避坑｜OpenTAP LazyResourceManager 的引用计数开关资源</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/13/2026-03-13-opentap-file-locking-package-actions/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-13T02:00:00.000Z" itemprop="datePublished">Mar 13</time>
-</a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/13/2026-03-13-opentap-file-locking-package-actions/">性能视角｜OpenTAP 包管理的并发加锁与等待策略</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/12/2026-03-12-opentap-dependencyanalyzer-broken-propagation/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-12T02:00:00.000Z" itemprop="datePublished">Mar 12</time>
-</a>
       
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/12/2026-03-12-opentap-dependencyanalyzer-broken-propagation/">工程实践｜OpenTAP 包依赖故障的级联判定</a>
-    </h1>
-  
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/OpenTAP/" rel="tag">OpenTAP</a></li></ul>
 
-    </header>
+    </footer>
   </div>
+  
+    
+<nav id="article-nav">
+  
+  
+    <a href="/2026/03/28/2026-03-28-opentap-pluginmanager-loading-mechanism/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">机制图解｜PluginManager 如何动态加载测试插件</div>
+    </a>
+  
+</nav>
+
+  
 </article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/11/2026-03-11-opentap-open-execute-state-reuse/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-11T02:00:00.000Z" itemprop="datePublished">Mar 11</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/11/2026-03-11-opentap-open-execute-state-reuse/">机制图解｜OpenTAP TestPlan 的 Open/Execute 状态复用</a>
-    </h1>
-  
 
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/10/2026-03-10-opentap-cli-run-cancel-and-exitcode/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-10T02:00:00.000Z" itemprop="datePublished">Mar 10</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/10/2026-03-10-opentap-cli-run-cancel-and-exitcode/">OpenTAP CLI 的中断处理与退出码链路</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-09T02:00:00.000Z" itemprop="datePublished">Mar 9</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/09/2026-03-09-opentap-pluginmanager-cache-invalidation/">OpenTAP 插件扫描中的缓存失效机制</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-    
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      <a href="/2026/03/08/2026-03-08-opentap-workqueue-async-serial-execution/" class="archive-article-date">
-  <time class="dt-published" datetime="2026-03-08T02:00:00.000Z" itemprop="datePublished">Mar 8</time>
-</a>
-      
-  
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/2026/03/08/2026-03-08-opentap-workqueue-async-serial-execution/">OpenTAP WorkQueue：异步提交与串行消费</a>
-    </h1>
-  
-
-    </header>
-  </div>
-</article>
-  
-  
-    </div></section>
-  
-
-
-  <nav id="page-nav">
-    
-    <a class="extend prev" rel="prev" href="/archives/2026/03/">&laquo; Prev</a><a class="page-number" href="/archives/2026/03/">1</a><span class="page-number current">2</span><a class="page-number" href="/archives/2026/03/page/3/">3</a><a class="extend next" rel="next" href="/archives/2026/03/page/3/">Next &raquo;</a>
-  </nav>
 
 </section>
         
